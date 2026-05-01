@@ -3,77 +3,175 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+    <meta name="googlebot" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <title>oloimina</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="app">
-      <header class="masthead">
-        <div class="date" id="date"></div>
-        <div class="phase" id="phase"></div>
-      </header>
+    <div class="layout">
+      <nav class="sidebar" aria-label="navigation">
+        <div class="ws">oloimina</div>
 
-      <section class="column today" aria-labelledby="today-h">
-        <div class="column-head">
-          <h1 id="today-h">today</h1>
-          <div class="commit" id="commit" aria-live="polite"></div>
-        </div>
-        <ol class="list" id="today-list" data-zone="today"></ol>
-        <p class="empty" id="today-empty" hidden>
-          nothing here yet — drag from the backlog when you're ready to plan.
-        </p>
-      </section>
+        <ul class="nav" data-group="views">
+          <li>
+            <button class="nav-item" data-view="today" aria-current="page">today</button>
+          </li>
+          <li>
+            <button class="nav-item" data-view="backlog">backlog</button>
+          </li>
+        </ul>
 
-      <section class="column backlog" aria-labelledby="backlog-h">
-        <div class="column-head">
-          <h2 id="backlog-h">backlog</h2>
-        </div>
-        <form class="add" id="add-form" autocomplete="off">
-          <input
-            type="text"
-            id="add-input"
-            name="title"
-            placeholder="add a task"
-            aria-label="add a task"
-          />
-          <input
-            type="text"
-            id="add-mins"
-            name="minutes"
-            inputmode="numeric"
-            pattern="[0-9]*"
-            placeholder="min"
-            aria-label="estimated minutes"
-          />
-        </form>
-        <ol class="list" id="backlog-list" data-zone="backlog"></ol>
-        <p class="empty" id="backlog-empty" hidden>
-          no loose ends — write one above when something comes up.
-        </p>
-      </section>
+        <div class="nav-section">daily rituals</div>
+        <ul class="nav" data-group="rituals">
+          <li>
+            <button class="nav-item" data-ritual="planning">
+              <span>planning</span>
+              <span class="dot" data-ritual-dot="planning" hidden></span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item" data-ritual="shutdown">
+              <span>shutdown</span>
+              <span class="dot" data-ritual-dot="shutdown" hidden></span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-item" data-ritual="highlights">
+              <span>highlights</span>
+              <span class="dot" data-ritual-dot="highlights" hidden></span>
+            </button>
+          </li>
+        </ul>
+      </nav>
 
-      <aside class="ritual" id="ritual" hidden>
-        <div class="ritual-inner">
-          <h3 id="ritual-title"></h3>
-          <p id="ritual-body"></p>
-          <div class="ritual-actions">
-            <button type="button" id="ritual-skip" class="ghost">later</button>
-            <button type="button" id="ritual-done">done</button>
+      <main class="main">
+        <header class="topbar">
+          <div class="topbar-l">
+            <div class="date" id="date"></div>
+            <div class="phase" id="phase"></div>
           </div>
+        </header>
+
+        <section class="view view-today" id="view-today">
+          <div class="day-grid">
+            <article class="day" data-offset="0"></article>
+            <article class="day" data-offset="1"></article>
+            <article class="day" data-offset="2"></article>
+          </div>
+        </section>
+
+        <section class="view view-backlog" id="view-backlog" hidden>
+          <header class="view-head">
+            <h1>backlog</h1>
+            <span class="view-sub">things you'll get to.</span>
+          </header>
+          <form class="add" id="backlog-add" autocomplete="off">
+            <input
+              type="text"
+              id="backlog-add-input"
+              placeholder="add a task"
+              aria-label="add a task"
+            />
+            <input
+              type="text"
+              id="backlog-add-mins"
+              inputmode="numeric"
+              placeholder="min"
+              aria-label="estimated minutes"
+            />
+          </form>
+          <ol class="backlog-list" id="backlog-list" data-zone="backlog"></ol>
+          <p class="empty" id="backlog-empty" hidden>
+            nothing's loose. write one above when something comes up.
+          </p>
+        </section>
+      </main>
+
+      <aside class="cal" aria-label="calendar timeline">
+        <header class="cal-head">
+          <span class="cal-label">calendar</span>
+          <span class="cal-day" id="cal-day"></span>
+        </header>
+        <div class="cal-scroll">
+          <div class="cal-grid" id="cal-grid" data-zone="calendar"></div>
         </div>
       </aside>
+    </div>
 
-      <footer class="foot">
-        <button type="button" id="shutdown" class="ghost">shut down the day</button>
-      </footer>
-    </main>
+    <div class="ritual-overlay" id="ritual" hidden>
+      <div class="ritual-inner">
+        <h3 id="ritual-title"></h3>
+        <p id="ritual-body"></p>
+        <textarea id="ritual-input" hidden rows="3" spellcheck="false"></textarea>
+        <div class="ritual-actions">
+          <button class="ghost" type="button" id="ritual-skip">later</button>
+          <button type="button" id="ritual-done">done</button>
+        </div>
+      </div>
+    </div>
+
+    <template id="day-tpl">
+      <header class="day-head">
+        <div>
+          <h2 class="day-name"></h2>
+          <span class="day-date"></span>
+        </div>
+        <span class="day-total"></span>
+      </header>
+      <form class="day-add" autocomplete="off">
+        <input type="text" class="day-add-input" placeholder="+ add task" />
+        <input
+          type="text"
+          class="day-add-mins"
+          inputmode="numeric"
+          placeholder="min"
+          aria-label="minutes"
+        />
+      </form>
+      <ol class="day-list"></ol>
+    </template>
 
     <template id="task-tpl">
       <li class="task" draggable="true">
-        <button class="check" type="button" aria-label="mark done"></button>
-        <span class="title"></span>
-        <span class="mins" contenteditable="true" spellcheck="false"></span>
+        <div class="task-top">
+          <span
+            class="task-time"
+            contenteditable="true"
+            spellcheck="false"
+            data-empty="set time"
+          ></span>
+          <span
+            class="task-mins"
+            contenteditable="true"
+            spellcheck="false"
+            data-empty="—"
+          ></span>
+        </div>
+        <div
+          class="task-title"
+          contenteditable="true"
+          spellcheck="false"
+        ></div>
+        <div class="task-bot">
+          <button class="check" type="button" aria-label="mark done"></button>
+          <span
+            class="task-tag"
+            contenteditable="true"
+            spellcheck="false"
+            data-empty="# tag"
+          ></span>
+        </div>
       </li>
+    </template>
+
+    <template id="cal-block-tpl">
+      <div class="cal-block" draggable="true">
+        <span class="cal-block-time"></span>
+        <span class="cal-block-title"></span>
+      </div>
     </template>
 
     <script src="app.js" defer></script>

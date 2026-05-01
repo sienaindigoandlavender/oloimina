@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>oloimina</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="masthead">
+        <div class="date" id="date"></div>
+        <div class="phase" id="phase"></div>
+      </header>
+
+      <section class="column today" aria-labelledby="today-h">
+        <div class="column-head">
+          <h1 id="today-h">today</h1>
+          <div class="commit" id="commit" aria-live="polite"></div>
+        </div>
+        <ol class="list" id="today-list" data-zone="today"></ol>
+        <p class="empty" id="today-empty" hidden>
+          nothing here yet — drag from the backlog when you're ready to plan.
+        </p>
+      </section>
+
+      <section class="column backlog" aria-labelledby="backlog-h">
+        <div class="column-head">
+          <h2 id="backlog-h">backlog</h2>
+        </div>
+        <form class="add" id="add-form" autocomplete="off">
+          <input
+            type="text"
+            id="add-input"
+            name="title"
+            placeholder="add a task"
+            aria-label="add a task"
+          />
+          <input
+            type="text"
+            id="add-mins"
+            name="minutes"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            placeholder="min"
+            aria-label="estimated minutes"
+          />
+        </form>
+        <ol class="list" id="backlog-list" data-zone="backlog"></ol>
+        <p class="empty" id="backlog-empty" hidden>
+          no loose ends — write one above when something comes up.
+        </p>
+      </section>
+
+      <aside class="ritual" id="ritual" hidden>
+        <div class="ritual-inner">
+          <h3 id="ritual-title"></h3>
+          <p id="ritual-body"></p>
+          <div class="ritual-actions">
+            <button type="button" id="ritual-skip" class="ghost">later</button>
+            <button type="button" id="ritual-done">done</button>
+          </div>
+        </div>
+      </aside>
+
+      <footer class="foot">
+        <button type="button" id="shutdown" class="ghost">shut down the day</button>
+      </footer>
+    </main>
+
+    <template id="task-tpl">
+      <li class="task" draggable="true">
+        <button class="check" type="button" aria-label="mark done"></button>
+        <span class="title"></span>
+        <span class="mins" contenteditable="true" spellcheck="false"></span>
+      </li>
+    </template>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

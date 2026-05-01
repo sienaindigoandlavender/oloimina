@@ -1,175 +1,407 @@
 // oloimina — calm task management
-// State lives in localStorage. No network, no analytics, no third parties.
+// State lives on-device. No network, no analytics, no third parties.
 
-const STORE_KEY = "oloimina.v1";
+const STORE_KEY = "oloimina.v2";
+const MIGRATE_FROM = "oloimina.v1";
 
-const todayKey = () => {
+const CAL_START = 6;
+const CAL_END = 22;
+const HOUR_PX = 56;
+
+// ---------- date helpers ----------
+
+const pad = (n) => String(n).padStart(2, "0");
+
+const dayKey = (offset = 0) => {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")}`;
+  d.setDate(d.getDate() + offset);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const dayLabel = (offset = 0, opts = { weekday: "long" }) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toLocaleDateString(undefined, opts);
+};
+
+const phaseFor = (h) => {
+  if (h < 5) return "night";
+  if (h < 11) return "morning";
+  if (h < 14) return "midday";
+  if (h < 18) return "afternoon";
+  if (h < 22) return "evening";
+  return "night";
+};
+
+// ---------- time/duration parsing ----------
+
+const parseTime = (raw) => {
+  if (!raw) return null;
+  let s = raw.trim().toLowerCase();
+  const pm = /p/.test(s);
+  const am = /a/.test(s);
+  s = s.replace(/[^\d:]/g, "");
+  if (!s) return null;
+  let h, m;
+  if (s.includes(":")) {
+    const parts = s.split(":");
+    h = Number(parts[0]);
+    m = Number(parts[1] || 0);
+  } else if (s.length <= 2) {
+    h = Number(s);
+    m = 0;
+  } else {
+    h = Number(s.slice(0, -2));
+    m = Number(s.slice(-2));
+  }
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  if (pm && h < 12) h += 12;
+  if (am && h === 12) h = 0;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return `${pad(h)}:${pad(m)}`;
+};
+
+const fmtTime = (hhmm) => {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  const suffix = h >= 12 ? "pm" : "am";
+  const h12 = h % 12 || 12;
+  return `${h12}:${pad(m)} ${suffix}`;
+};
+
+const parseMins = (raw) => {
+  if (!raw) return 0;
+  const s = String(raw).trim().toLowerCase();
+  if (!s) return 0;
+  const hM = s.match(/(\d+)\s*h/);
+  const mM = s.match(/(\d+)\s*m(?!\w)/);
+  if (hM || mM) {
+    return (hM ? Number(hM[1]) * 60 : 0) + (mM ? Number(mM[1]) : 0);
+  }
+  if (s.includes(":")) {
+    const [h, m] = s.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  }
+  const n = parseInt(s.replace(/\D/g, ""), 10);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const fmtMins = (mins) => {
+  if (!mins) return "";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}:${pad(m)}`;
+};
+
+// ---------- state ----------
+
+const defaultState = () => ({
+  tasks: [], // { id, title, mins, day: "YYYY-MM-DD"|null, time: "HH:MM"|null, tag, done }
+  view: "today",
+});
+
+const migrate = () => {
+  try {
+    const raw = localStorage.getItem(MIGRATE_FROM);
+    if (!raw) return null;
+    const old = JSON.parse(raw);
+    const tasks = (old.tasks || []).map((t) => ({
+      id: t.id || crypto.randomUUID(),
+      title: t.title || "",
+      mins: Number(t.mins) || 0,
+      day: t.zone === "today" ? t.planned || dayKey() : null,
+      time: null,
+      tag: "",
+      done: !!t.done,
+    }));
+    return { ...defaultState(), tasks };
+  } catch {
+    return null;
+  }
 };
 
 const load = () => {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return defaultState();
-    const parsed = JSON.parse(raw);
-    return { ...defaultState(), ...parsed };
+    if (raw) return { ...defaultState(), ...JSON.parse(raw) };
+    const m = migrate();
+    if (m) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(m));
+      return m;
+    }
+    return defaultState();
   } catch {
     return defaultState();
   }
 };
 
-const defaultState = () => ({
-  tasks: [], // { id, title, mins, zone: "today"|"backlog", done, planned: dateKey|null }
-  lastPlannedOn: null,
-  lastShutdownOn: null,
-  ritualDismissedFor: null,
-});
-
-const save = (state) => {
-  localStorage.setItem(STORE_KEY, JSON.stringify(state));
-};
+const save = () => localStorage.setItem(STORE_KEY, JSON.stringify(state));
 
 let state = load();
 
-// Roll over: anything left in "today" from a prior day moves back to backlog,
-// quietly. The product does not scold; time passed.
-const rollover = () => {
-  const today = todayKey();
+// Quiet rollover: undone tasks scheduled before today move to today.
+// Done tasks stay where they were — they're history, not active work.
+{
+  const today = dayKey();
   let changed = false;
   for (const t of state.tasks) {
-    if (t.zone === "today" && t.planned && t.planned !== today) {
-      t.zone = "backlog";
-      t.planned = null;
-      t.done = false;
+    if (t.day && t.day < today && !t.done) {
+      t.day = today;
+      t.time = null;
       changed = true;
     }
   }
-  if (changed) save(state);
-};
+  if (changed) save();
+}
 
-rollover();
-
-// --- DOM ---
+// ---------- DOM refs ----------
 
 const $ = (id) => document.getElementById(id);
-const tpl = $("task-tpl");
 
 const dateEl = $("date");
 const phaseEl = $("phase");
-const todayList = $("today-list");
+const calGrid = $("cal-grid");
+const calDay = $("cal-day");
+const dayTpl = $("day-tpl");
+const taskTpl = $("task-tpl");
+const blockTpl = $("cal-block-tpl");
+
+const viewToday = $("view-today");
+const viewBacklog = $("view-backlog");
 const backlogList = $("backlog-list");
-const todayEmpty = $("today-empty");
 const backlogEmpty = $("backlog-empty");
-const commitEl = $("commit");
-const addForm = $("add-form");
-const addInput = $("add-input");
-const addMins = $("add-mins");
-const ritual = $("ritual");
-const ritualTitle = $("ritual-title");
-const ritualBody = $("ritual-body");
-const ritualDone = $("ritual-done");
-const ritualSkip = $("ritual-skip");
-const shutdownBtn = $("shutdown");
+const backlogAdd = $("backlog-add");
+const backlogAddInput = $("backlog-add-input");
+const backlogAddMins = $("backlog-add-mins");
 
-// --- Render ---
+// ---------- selection / UI state ----------
 
-const fmtDate = () => {
-  const d = new Date();
-  return d.toLocaleDateString(undefined, {
+let view = state.view || "today";
+
+const setView = (next) => {
+  view = next;
+  state.view = next;
+  save();
+  document.querySelectorAll('[data-view]').forEach((el) => {
+    el.toggleAttribute("aria-current", el.dataset.view === next);
+    if (el.dataset.view === next) el.setAttribute("aria-current", "page");
+    else el.removeAttribute("aria-current");
+  });
+  viewToday.hidden = next !== "today";
+  viewBacklog.hidden = next !== "backlog";
+  if (next === "backlog") backlogAddInput?.focus();
+};
+
+// ---------- render: header ----------
+
+const renderHeader = () => {
+  dateEl.textContent = dayLabel(0, {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
-};
-
-const fmtMins = (m) => {
-  if (!m) return "";
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  const r = m % 60;
-  return r ? `${h}h ${r}m` : `${h}h`;
-};
-
-const phaseFor = (hour) => {
-  if (hour < 5) return "night";
-  if (hour < 11) return "morning";
-  if (hour < 14) return "midday";
-  if (hour < 18) return "afternoon";
-  if (hour < 22) return "evening";
-  return "night";
-};
-
-const renderHeader = () => {
-  dateEl.textContent = fmtDate();
   phaseEl.textContent = phaseFor(new Date().getHours());
+  calDay.textContent = dayLabel(0, { weekday: "short", month: "short", day: "numeric" });
 };
 
-const renderCommit = () => {
-  const today = state.tasks.filter((t) => t.zone === "today");
-  const open = today.filter((t) => !t.done);
-  const total = open.reduce((s, t) => s + (t.mins || 0), 0);
-  if (today.length === 0) {
-    commitEl.textContent = "";
-    return;
-  }
-  if (open.length === 0) {
-    commitEl.textContent = "the day is done";
-    return;
-  }
-  commitEl.textContent = total ? `${fmtMins(total)} planned` : `${open.length} open`;
+// ---------- render: task card ----------
+
+const buildTaskNode = (t) => {
+  const node = taskTpl.content.firstElementChild.cloneNode(true);
+  node.dataset.id = t.id;
+  if (t.done) node.classList.add("done");
+  node.querySelector(".task-title").textContent = t.title;
+  node.querySelector(".task-time").textContent = fmtTime(t.time);
+  node.querySelector(".task-mins").textContent = fmtMins(t.mins);
+  node.querySelector(".task-tag").textContent = t.tag || "";
+  return node;
 };
 
-const renderList = (zone, listEl, emptyEl) => {
-  const items = state.tasks.filter((t) => t.zone === zone);
-  listEl.innerHTML = "";
+// ---------- render: day columns ----------
+
+const dayContainer = (offset) =>
+  document.querySelector(`.day[data-offset="${offset}"]`);
+
+const renderDay = (offset) => {
+  const container = dayContainer(offset);
+  const key = dayKey(offset);
+  const isToday = offset === 0;
+
+  // build skeleton if empty
+  if (!container.querySelector(".day-head")) {
+    container.appendChild(dayTpl.content.cloneNode(true));
+    const list = container.querySelector(".day-list");
+    list.dataset.zone = "day";
+    list.dataset.day = key;
+  }
+
+  const list = container.querySelector(".day-list");
+  list.dataset.day = key; // keep up to date as date changes
+  container.querySelector(".day-name").textContent = isToday
+    ? "today"
+    : dayLabel(offset, { weekday: "long" }).toLowerCase();
+  container.querySelector(".day-date").textContent = dayLabel(offset, {
+    month: "long",
+    day: "numeric",
+  });
+
+  // sort: timed first by time, then untimed in original order
+  const items = state.tasks
+    .filter((t) => t.day === key)
+    .sort((a, b) => {
+      if (a.time && b.time) return a.time.localeCompare(b.time);
+      if (a.time) return -1;
+      if (b.time) return 1;
+      return 0;
+    });
+
+  const total = items.filter((t) => !t.done).reduce((s, t) => s + (t.mins || 0), 0);
+  const totalEl = container.querySelector(".day-total");
+  totalEl.textContent = total ? fmtMins(total) : "";
+
+  list.innerHTML = "";
+  for (const t of items) list.appendChild(buildTaskNode(t));
+};
+
+const wireDayAdd = (offset) => {
+  const container = dayContainer(offset);
+  const form = container.querySelector(".day-add");
+  if (form.dataset.wired) return;
+  form.dataset.wired = "1";
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const titleEl = form.querySelector(".day-add-input");
+    const minsEl = form.querySelector(".day-add-mins");
+    if (!titleEl.value.trim()) return;
+    addTask({
+      title: titleEl.value,
+      mins: parseMins(minsEl.value),
+      day: dayKey(offset),
+    });
+    titleEl.value = "";
+    minsEl.value = "";
+    titleEl.focus();
+  });
+};
+
+const renderDays = () => {
+  for (let i = 0; i < 3; i++) {
+    renderDay(i);
+    wireDayAdd(i);
+  }
+};
+
+// ---------- render: backlog ----------
+
+const renderBacklog = () => {
+  const items = state.tasks.filter((t) => t.day === null);
+  backlogList.innerHTML = "";
+  for (const t of items) backlogList.appendChild(buildTaskNode(t));
+  backlogEmpty.hidden = items.length !== 0;
+};
+
+// ---------- render: calendar timeline ----------
+
+const buildCalendarSkeleton = () => {
+  calGrid.innerHTML = "";
+  for (let h = CAL_START; h < CAL_END; h++) {
+    const row = document.createElement("div");
+    row.className = "cal-hour";
+    row.style.top = `${(h - CAL_START) * HOUR_PX}px`;
+    const label = document.createElement("span");
+    label.className = "cal-hour-label";
+    const ampm = h >= 12 ? "pm" : "am";
+    const h12 = h % 12 || 12;
+    label.textContent = `${h12} ${ampm}`;
+    row.appendChild(label);
+    calGrid.appendChild(row);
+  }
+};
+
+const renderCalendar = () => {
+  // remove blocks + now line; keep hour rows
+  calGrid.querySelectorAll(".cal-block, .cal-now").forEach((n) => n.remove());
+
+  const today = dayKey();
+  const items = state.tasks
+    .filter((t) => t.day === today && t.time && t.mins)
+    .sort((a, b) => a.time.localeCompare(b.time));
+
   for (const t of items) {
-    const node = tpl.content.firstElementChild.cloneNode(true);
+    const [h, m] = t.time.split(":").map(Number);
+    if (h < CAL_START || h >= CAL_END) continue;
+    const top = (h - CAL_START) * HOUR_PX + (m / 60) * HOUR_PX;
+    const height = Math.max(22, (t.mins / 60) * HOUR_PX);
+
+    const node = blockTpl.content.firstElementChild.cloneNode(true);
     node.dataset.id = t.id;
+    node.style.top = `${top}px`;
+    node.style.height = `${height}px`;
     if (t.done) node.classList.add("done");
-    node.querySelector(".title").textContent = t.title;
-    node.querySelector(".title").contentEditable = "true";
-    node.querySelector(".title").spellcheck = false;
-    node.querySelector(".mins").textContent = fmtMins(t.mins);
-    listEl.appendChild(node);
+    node.querySelector(".cal-block-time").textContent = fmtTime(t.time);
+    node.querySelector(".cal-block-title").textContent = t.title;
+    calGrid.appendChild(node);
   }
-  emptyEl.hidden = items.length !== 0;
+
+  // now line
+  const now = new Date();
+  const h = now.getHours() + now.getMinutes() / 60;
+  if (h >= CAL_START && h < CAL_END) {
+    const line = document.createElement("div");
+    line.className = "cal-now";
+    line.style.top = `${(h - CAL_START) * HOUR_PX}px`;
+    calGrid.appendChild(line);
+  }
 };
+
+// ---------- master render ----------
 
 const render = () => {
   renderHeader();
-  renderList("today", todayList, todayEmpty);
-  renderList("backlog", backlogList, backlogEmpty);
-  renderCommit();
+  renderDays();
+  renderBacklog();
+  renderCalendar();
 };
 
-// --- Mutations ---
+// ---------- mutations ----------
 
-const addTask = (title, mins) => {
+const addTask = ({ title, mins = 0, day = null, time = null, tag = "" }) => {
   const t = {
     id: crypto.randomUUID(),
-    title: title.trim(),
-    mins: mins ? Number(mins) : 0,
-    zone: "backlog",
+    title: String(title).trim(),
+    mins: Number(mins) || 0,
+    day,
+    time,
+    tag,
     done: false,
-    planned: null,
   };
   if (!t.title) return;
   state.tasks.push(t);
-  save(state);
+  save();
   render();
 };
 
-const moveTask = (id, zone, beforeId) => {
+const updateTask = (id, patch) => {
   const t = state.tasks.find((x) => x.id === id);
   if (!t) return;
-  t.zone = zone;
-  t.planned = zone === "today" ? todayKey() : null;
-  if (zone === "backlog") t.done = false;
+  Object.assign(t, patch);
+  save();
+  render();
+};
 
-  // reorder: move to position before beforeId (or to end)
+const removeTask = (id) => {
+  state.tasks = state.tasks.filter((x) => x.id !== id);
+  save();
+  render();
+};
+
+const moveTask = (id, { day, beforeId } = {}) => {
+  const t = state.tasks.find((x) => x.id === id);
+  if (!t) return;
+  if (day !== undefined) {
+    t.day = day;
+    if (day === null) t.time = null; // backlog has no time-of-day
+  }
   state.tasks = state.tasks.filter((x) => x.id !== id);
   if (beforeId) {
     const idx = state.tasks.findIndex((x) => x.id === beforeId);
@@ -178,189 +410,178 @@ const moveTask = (id, zone, beforeId) => {
   } else {
     state.tasks.push(t);
   }
-  save(state);
+  save();
   render();
 };
 
-const toggleDone = (id) => {
-  const t = state.tasks.find((x) => x.id === id);
-  if (!t) return;
-  t.done = !t.done;
-  save(state);
-  render();
-};
-
-const editTitle = (id, title) => {
-  const t = state.tasks.find((x) => x.id === id);
-  if (!t) return;
-  const trimmed = title.trim();
-  if (!trimmed) {
-    state.tasks = state.tasks.filter((x) => x.id !== id);
-  } else {
-    t.title = trimmed;
-  }
-  save(state);
-  render();
-};
-
-const editMins = (id, raw) => {
-  const t = state.tasks.find((x) => x.id === id);
-  if (!t) return;
-  const n = parseInt(String(raw).replace(/\D/g, ""), 10);
-  t.mins = Number.isFinite(n) ? n : 0;
-  save(state);
-  render();
-};
-
-// --- Events ---
-
-addForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  if (!addInput.value.trim()) return;
-  addTask(addInput.value, addMins.value);
-  addInput.value = "";
-  addMins.value = "";
-  addInput.focus();
-});
-
-const taskFromEvent = (e) => e.target.closest(".task");
+// ---------- events ----------
 
 document.addEventListener("click", (e) => {
+  const navBtn = e.target.closest("[data-view]");
+  if (navBtn) {
+    setView(navBtn.dataset.view);
+    return;
+  }
   if (e.target.classList.contains("check")) {
-    const node = taskFromEvent(e);
-    if (node) toggleDone(node.dataset.id);
+    const card = e.target.closest(".task");
+    if (card) {
+      const t = state.tasks.find((x) => x.id === card.dataset.id);
+      if (t) updateTask(t.id, { done: !t.done });
+    }
   }
 });
+
+const handleEdit = (target) => {
+  const card = target.closest(".task");
+  if (!card) return;
+  const id = card.dataset.id;
+  const t = state.tasks.find((x) => x.id === id);
+  if (!t) return;
+
+  if (target.classList.contains("task-title")) {
+    const text = target.textContent.trim();
+    if (!text) {
+      removeTask(id);
+    } else if (text !== t.title) {
+      updateTask(id, { title: text });
+    }
+  } else if (target.classList.contains("task-mins")) {
+    const next = parseMins(target.textContent);
+    if (next !== t.mins) updateTask(id, { mins: next });
+    else target.textContent = fmtMins(t.mins); // restore canonical
+  } else if (target.classList.contains("task-time")) {
+    const next = parseTime(target.textContent);
+    if (next !== t.time) updateTask(id, { time: next });
+    else target.textContent = fmtTime(t.time);
+  } else if (target.classList.contains("task-tag")) {
+    let next = target.textContent.replace(/^#+\s*/, "").trim();
+    if (next !== t.tag) updateTask(id, { tag: next });
+    else target.textContent = t.tag;
+  }
+};
 
 document.addEventListener(
   "blur",
   (e) => {
-    const node = taskFromEvent(e);
-    if (!node) return;
-    if (e.target.classList.contains("title")) {
-      editTitle(node.dataset.id, e.target.textContent);
-    } else if (e.target.classList.contains("mins")) {
-      editMins(node.dataset.id, e.target.textContent);
-    }
+    if (e.target.matches?.("[contenteditable]")) handleEdit(e.target);
   },
   true
 );
 
 document.addEventListener("keydown", (e) => {
-  if (
-    e.key === "Enter" &&
-    (e.target.classList?.contains("title") || e.target.classList?.contains("mins"))
-  ) {
+  if (e.key === "Enter" && e.target.matches?.("[contenteditable]")) {
     e.preventDefault();
     e.target.blur();
   }
 });
 
-// --- Drag and drop ---
+backlogAdd.addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!backlogAddInput.value.trim()) return;
+  addTask({
+    title: backlogAddInput.value,
+    mins: parseMins(backlogAddMins.value),
+    day: null,
+  });
+  backlogAddInput.value = "";
+  backlogAddMins.value = "";
+  backlogAddInput.focus();
+});
+
+// ---------- drag and drop ----------
 
 let dragId = null;
 
 document.addEventListener("dragstart", (e) => {
-  const node = taskFromEvent(e);
-  if (!node) return;
-  dragId = node.dataset.id;
-  node.classList.add("dragging");
+  const card = e.target.closest(".task, .cal-block");
+  if (!card) return;
+  dragId = card.dataset.id;
+  card.classList.add("dragging");
   e.dataTransfer.effectAllowed = "move";
   e.dataTransfer.setData("text/plain", dragId);
 });
 
-document.addEventListener("dragend", (e) => {
-  const node = taskFromEvent(e);
-  if (node) node.classList.remove("dragging");
-  document
-    .querySelectorAll(".drop-target")
-    .forEach((n) => n.classList.remove("drop-target"));
+document.addEventListener("dragend", () => {
+  document.querySelectorAll(".dragging").forEach((n) => n.classList.remove("dragging"));
+  document.querySelectorAll(".drop-target").forEach((n) => n.classList.remove("drop-target"));
+  document.querySelectorAll(".drag-over").forEach((n) => n.classList.remove("drag-over"));
   dragId = null;
 });
 
-const findDropList = (target) => target.closest('[data-zone]');
+const findZone = (target) => target.closest('[data-zone]');
 
 document.addEventListener("dragover", (e) => {
-  const list = findDropList(e.target);
-  if (!list) return;
+  if (!dragId) return;
+  const navTarget = e.target.closest('[data-view]');
+  if (navTarget && (navTarget.dataset.view === "backlog" || navTarget.dataset.view === "today")) {
+    e.preventDefault();
+    document.querySelectorAll('.nav-item.drag-over').forEach((n) => n.classList.remove('drag-over'));
+    navTarget.classList.add("drag-over");
+    return;
+  }
+  const zone = findZone(e.target);
+  if (!zone) return;
   e.preventDefault();
+  document.querySelectorAll(".drop-target").forEach((n) => n.classList.remove("drop-target"));
+  document.querySelectorAll(".drag-over").forEach((n) => n.classList.remove("drag-over"));
+  if (zone.dataset.zone === "calendar") {
+    zone.classList.add("drag-over");
+    return;
+  }
   const over = e.target.closest(".task");
-  document
-    .querySelectorAll(".drop-target")
-    .forEach((n) => n.classList.remove("drop-target"));
   if (over && over.dataset.id !== dragId) over.classList.add("drop-target");
 });
 
 document.addEventListener("drop", (e) => {
-  const list = findDropList(e.target);
-  if (!list || !dragId) return;
+  if (!dragId) return;
+
+  // drop on sidebar nav
+  const navTarget = e.target.closest('[data-view]');
+  if (navTarget && (navTarget.dataset.view === "backlog" || navTarget.dataset.view === "today")) {
+    e.preventDefault();
+    moveTask(dragId, {
+      day: navTarget.dataset.view === "backlog" ? null : dayKey(),
+    });
+    return;
+  }
+
+  const zone = findZone(e.target);
+  if (!zone) return;
   e.preventDefault();
-  const over = e.target.closest(".task");
-  const beforeId = over && over.dataset.id !== dragId ? over.dataset.id : null;
-  moveTask(dragId, list.dataset.zone, beforeId);
+
+  if (zone.dataset.zone === "day") {
+    const over = e.target.closest(".task");
+    const beforeId = over && over.dataset.id !== dragId ? over.dataset.id : null;
+    moveTask(dragId, { day: zone.dataset.day, beforeId });
+  } else if (zone.dataset.zone === "backlog") {
+    const over = e.target.closest(".task");
+    const beforeId = over && over.dataset.id !== dragId ? over.dataset.id : null;
+    moveTask(dragId, { day: null, beforeId });
+  } else if (zone.dataset.zone === "calendar") {
+    // schedule: compute time from drop y position
+    const rect = calGrid.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const minutes = Math.max(0, Math.round((y / HOUR_PX) * 60 / 15) * 15);
+    const totalMin = CAL_START * 60 + minutes;
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    if (h < CAL_END) {
+      const t = state.tasks.find((x) => x.id === dragId);
+      const patch = { day: dayKey(), time: `${pad(h)}:${pad(m)}` };
+      if (t && !t.mins) patch.mins = 30;
+      updateTask(dragId, patch);
+    }
+  }
 });
 
-// --- Rituals ---
-// Two gentle, optional moments per day. Both can be dismissed permanently
-// for the day with "later". The product does not nag.
+// ---------- init ----------
 
-const showRitual = (title, body, onDone) => {
-  ritualTitle.textContent = title;
-  ritualBody.textContent = body;
-  ritual.hidden = false;
-  const close = () => {
-    ritual.hidden = true;
-    ritualDone.removeEventListener("click", doneHandler);
-    ritualSkip.removeEventListener("click", skipHandler);
-  };
-  const doneHandler = () => {
-    close();
-    onDone?.();
-  };
-  const skipHandler = () => {
-    close();
-    state.ritualDismissedFor = todayKey();
-    save(state);
-  };
-  ritualDone.addEventListener("click", doneHandler);
-  ritualSkip.addEventListener("click", skipHandler);
-};
-
-const maybeMorningRitual = () => {
-  const today = todayKey();
-  if (state.lastPlannedOn === today) return;
-  if (state.ritualDismissedFor === today) return;
-  const hasToday = state.tasks.some((t) => t.zone === "today");
-  if (hasToday) return; // user already started planning
-  const hour = new Date().getHours();
-  if (hour < 5 || hour >= 14) return; // morning/early-midday only
-  showRitual(
-    "plan today",
-    "drag a few things from the backlog into today. small days are fine. an empty today is fine.",
-    () => {
-      state.lastPlannedOn = today;
-      save(state);
-    }
-  );
-};
-
-const runShutdown = () => {
-  const today = todayKey();
-  const items = state.tasks.filter((t) => t.zone === "today");
-  const done = items.filter((t) => t.done).length;
-  const open = items.length - done;
-  const body =
-    items.length === 0
-      ? "nothing was planned. that's a kind of day too. sleep well."
-      : `${done} done${open ? `, ${open} carries over` : ""}. close the laptop.`;
-  showRitual("shut down", body, () => {
-    // Carry incomplete forward by leaving them; rollover() handles next day.
-    state.lastShutdownOn = today;
-    save(state);
-  });
-};
-
-shutdownBtn.addEventListener("click", runShutdown);
-
+buildCalendarSkeleton();
+setView(view);
 render();
-maybeMorningRitual();
+
+// gentle minute tick: keep the now-line and phase honest, no other side effects
+setInterval(() => {
+  renderCalendar();
+  renderHeader();
+}, 60_000);

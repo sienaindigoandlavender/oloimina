@@ -23,28 +23,6 @@
             <button class="nav-item" data-view="backlog">backlog</button>
           </li>
         </ul>
-
-        <div class="nav-section">daily rituals</div>
-        <ul class="nav" data-group="rituals">
-          <li>
-            <button class="nav-item" data-ritual="planning">
-              <span>planning</span>
-              <span class="dot" data-ritual-dot="planning" hidden></span>
-            </button>
-          </li>
-          <li>
-            <button class="nav-item" data-ritual="shutdown">
-              <span>shutdown</span>
-              <span class="dot" data-ritual-dot="shutdown" hidden></span>
-            </button>
-          </li>
-          <li>
-            <button class="nav-item" data-ritual="highlights">
-              <span>highlights</span>
-              <span class="dot" data-ritual-dot="highlights" hidden></span>
-            </button>
-          </li>
-        </ul>
       </nav>
 
       <main class="main">
@@ -99,18 +77,6 @@
           <div class="cal-grid" id="cal-grid" data-zone="calendar"></div>
         </div>
       </aside>
-    </div>
-
-    <div class="ritual-overlay" id="ritual" hidden>
-      <div class="ritual-inner">
-        <h3 id="ritual-title"></h3>
-        <p id="ritual-body"></p>
-        <textarea id="ritual-input" hidden rows="3" spellcheck="false"></textarea>
-        <div class="ritual-actions">
-          <button class="ghost" type="button" id="ritual-skip">later</button>
-          <button type="button" id="ritual-done">done</button>
-        </div>
-      </div>
     </div>
 
     <template id="day-tpl">

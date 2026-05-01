@@ -97,7 +97,6 @@ const fmtMins = (mins) => {
 
 const defaultState = () => ({
   tasks: [], // { id, title, mins, day: "YYYY-MM-DD"|null, time: "HH:MM"|null, tag, done }
-  rituals: {}, // dateKey -> { planning, shutdown, highlight }
   view: "today",
 });
 
@@ -174,13 +173,6 @@ const backlogEmpty = $("backlog-empty");
 const backlogAdd = $("backlog-add");
 const backlogAddInput = $("backlog-add-input");
 const backlogAddMins = $("backlog-add-mins");
-
-const ritualEl = $("ritual");
-const ritualTitle = $("ritual-title");
-const ritualBody = $("ritual-body");
-const ritualInput = $("ritual-input");
-const ritualDoneBtn = $("ritual-done");
-const ritualSkipBtn = $("ritual-skip");
 
 // ---------- selection / UI state ----------
 
@@ -362,20 +354,6 @@ const renderCalendar = () => {
   }
 };
 
-// ---------- render: ritual dots ----------
-
-const renderRitualDots = () => {
-  const today = dayKey();
-  const r = state.rituals[today] || {};
-  for (const name of ["planning", "shutdown", "highlights"]) {
-    const dot = document.querySelector(`[data-ritual-dot="${name}"]`);
-    if (!dot) continue;
-    const done =
-      name === "highlights" ? !!r.highlight : !!r[name];
-    dot.hidden = !done;
-  }
-};
-
 // ---------- master render ----------
 
 const render = () => {
@@ -383,7 +361,6 @@ const render = () => {
   renderDays();
   renderBacklog();
   renderCalendar();
-  renderRitualDots();
 };
 
 // ---------- mutations ----------
@@ -445,11 +422,6 @@ document.addEventListener("click", (e) => {
     setView(navBtn.dataset.view);
     return;
   }
-  const ritualBtn = e.target.closest("[data-ritual]");
-  if (ritualBtn) {
-    openRitual(ritualBtn.dataset.ritual);
-    return;
-  }
   if (e.target.classList.contains("check")) {
     const card = e.target.closest(".task");
     if (card) {
@@ -500,9 +472,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.matches?.("[contenteditable]")) {
     e.preventDefault();
     e.target.blur();
-  }
-  if (e.key === "Escape") {
-    if (!ritualEl.hidden) closeRitual();
   }
 });
 
@@ -603,70 +572,6 @@ document.addEventListener("drop", (e) => {
       updateTask(dragId, patch);
     }
   }
-});
-
-// ---------- rituals ----------
-// All user-initiated. The product does not prompt.
-
-let activeRitual = null;
-
-const openRitual = (kind) => {
-  activeRitual = kind;
-  ritualInput.hidden = true;
-  ritualInput.value = "";
-  const today = dayKey();
-  const r = state.rituals[today] || {};
-
-  if (kind === "planning") {
-    ritualTitle.textContent = "plan today";
-    ritualBody.textContent =
-      "drag a few tasks from the backlog into today. small days are fine. an empty today is fine.";
-  } else if (kind === "shutdown") {
-    const todayTasks = state.tasks.filter((t) => t.day === today);
-    const done = todayTasks.filter((t) => t.done).length;
-    const open = todayTasks.length - done;
-    ritualTitle.textContent = "shut down";
-    ritualBody.textContent =
-      todayTasks.length === 0
-        ? "nothing was planned. that's a kind of day too. close the laptop."
-        : `${done} done${open ? `, ${open} carries over` : ""}. close the laptop.`;
-  } else if (kind === "highlights") {
-    ritualTitle.textContent = "today's highlight";
-    ritualBody.textContent =
-      "one line. one moment. nobody reads this but you.";
-    ritualInput.hidden = false;
-    ritualInput.value = r.highlight || "";
-    setTimeout(() => ritualInput.focus(), 50);
-  }
-
-  ritualEl.hidden = false;
-};
-
-const closeRitual = () => {
-  ritualEl.hidden = true;
-  activeRitual = null;
-};
-
-ritualSkipBtn.addEventListener("click", closeRitual);
-
-ritualDoneBtn.addEventListener("click", () => {
-  if (!activeRitual) return closeRitual();
-  const today = dayKey();
-  state.rituals[today] = state.rituals[today] || {};
-  if (activeRitual === "planning") state.rituals[today].planning = true;
-  if (activeRitual === "shutdown") state.rituals[today].shutdown = true;
-  if (activeRitual === "highlights") {
-    const text = ritualInput.value.trim();
-    if (text) state.rituals[today].highlight = text;
-    else delete state.rituals[today].highlight;
-  }
-  save();
-  closeRitual();
-  render();
-});
-
-ritualEl.addEventListener("click", (e) => {
-  if (e.target === ritualEl) closeRitual();
 });
 
 // ---------- init ----------

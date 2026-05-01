@@ -151,14 +151,6 @@ textarea {
   color: var(--ink);
 }
 
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  display: inline-block;
-}
-
 /* ----- main ----- */
 
 .main {
@@ -565,93 +557,6 @@ textarea {
 
 .cal-grid.drag-over {
   background: var(--rule-soft);
-}
-
-/* ----- ritual overlay ----- */
-
-.ritual-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(43, 42, 38, 0.18);
-  display: grid;
-  place-items: center;
-  z-index: 50;
-  animation: settle 320ms ease both;
-}
-
-.ritual-inner {
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 32px 36px 24px;
-  max-width: 460px;
-  width: calc(100% - 48px);
-}
-
-.ritual-inner h3 {
-  font-family: var(--serif);
-  font-weight: 400;
-  font-size: 22px;
-  margin: 0 0 12px;
-}
-
-.ritual-inner p {
-  color: var(--ink-soft);
-  margin: 0 0 18px;
-  font-size: 14px;
-}
-
-#ritual-input {
-  width: 100%;
-  border: 1px solid var(--rule);
-  background: var(--bg);
-  border-radius: 4px;
-  padding: 10px;
-  margin-bottom: 18px;
-  resize: vertical;
-  outline: none;
-  font-family: inherit;
-}
-
-#ritual-input:focus {
-  border-color: var(--accent);
-}
-
-.ritual-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 16px;
-  align-items: center;
-}
-
-.ritual-actions button:not(.ghost) {
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-
-.ghost {
-  color: var(--ink-soft);
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 6px 0;
-  transition: color 180ms ease;
-}
-
-.ghost:hover {
-  color: var(--ink);
-}
-
-@keyframes settle {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 @media (max-width: 1024px) {
